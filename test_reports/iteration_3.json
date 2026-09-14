@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 3 — verified login redirect bug fix and Toaster addition on Login/Setup pages. All 4 frontend flows pass and all 17 backend regression tests pass with no data loss.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_results": {
+    "wrong_password_flow": "PASS — Toast 'E-posta veya parola hatalı' visible top-right, user remained on /login",
+    "successful_login_redirect": "PASS — after clicking Giriş Yap URL changed from /login to /, dashboard-page visible, KPIs (kpi-total-debt-card, kpi-unit-count-card) and site-selector-dropdown rendered",
+    "logout_and_relogin": "PASS — logout-btn returned to login, subsequent login returned to dashboard",
+    "root_url_auto_auth": "PASS — after clearing localStorage/cookies, navigating to / rendered Login (login-submit-btn present)",
+    "backend_regression": "17/17 passed (test_asys_401_verification.py); TEST_Site + 3 units + 2 persons preserved (no data loss)"
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_asys_401_verification.py",
+    "/app/test_reports/pytest/iter3_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Minor: Toaster is duplicated (Login has its own + Layout likely too). Not blocking, but consider hoisting Toaster to App.js so it renders once for all routes.",
+    "Login.jsx catch block silently swallows error object; formatApiError result is toasted which is good, but consider adding console.error for debugging."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "rsyg8417@gmail.com / Admin123! (admin) — verified working",
+  "seed_data_creation": "None — used existing data as required",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Login bug fully fixed. Login.jsx uses useNavigate+navigate('/',{replace:true}) after successful login; Toaster now present on Login and Setup pages so wrong-password error toast is visible. Backend unchanged, data intact.",
+  "rca of the issue": "Root cause: When user visits /login directly and successfully logs in, React Router (App.js line 54 `<Route path='/login' element={<Login/>} />`) continued matching /login route, so Login component stayed mounted even though AuthContext.user was populated. Fix: navigate('/', {replace:true}) after login success → URL switches to /, which is handled by Guarded, which now renders Dashboard because user is present. Additionally, Toaster was only rendered inside authenticated Layout, so on the public Login/Setup pages error toasts had no host container and appeared silent. Fix: added <Toaster /> to Login.jsx and Setup.jsx."
+}
