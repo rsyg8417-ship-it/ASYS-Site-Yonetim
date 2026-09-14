@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useSite } from "@/context/SiteContext";
-import { api } from "@/lib/api";
+import { api, hasToken } from "@/lib/api";
 import { getQueue, removeFromQueue, markConflict } from "@/lib/offline";
 import { ROLE_LABEL } from "@/lib/format";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -52,10 +52,11 @@ export default function Layout() {
   }, []);
 
   useEffect(() => {
-    if (online && queue.filter((q) => q.status === "pending").length > 0) syncQueue();
+    if (online && hasToken() && queue.filter((q) => q.status === "pending").length > 0) syncQueue();
   }, [online]);
 
   const syncQueue = async () => {
+    if (!hasToken()) return; // Do not run background sync without authentication
     const pending = getQueue().filter((q) => q.status === "pending");
     if (pending.length === 0) return;
     setSyncing(true);
@@ -66,8 +67,14 @@ export default function Layout() {
         else markConflict(r.client_id, r.error);
       }
       setQueue(getQueue());
-      toast.success(`${data.results.filter((r) => r.ok).length} işlem senkronize edildi`);
+      const okCount = data.results.filter((r) => r.ok).length;
+      if (okCount > 0) toast.success(`${okCount} işlem senkronize edildi`);
     } catch (e) {
+      const status = e?.response?.status;
+      if (status === 401) {
+        // Auth interceptor already cleared token; stay silent.
+        return;
+      }
       toast.error("Senkronizasyon başarısız");
     } finally {
       setSyncing(false);

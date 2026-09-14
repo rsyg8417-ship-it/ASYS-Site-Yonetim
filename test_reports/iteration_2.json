@@ -1,0 +1,30 @@
+{
+  "summary": "Iteration 2 backend verification for '401 background operation failed' frontend fix. Wrote non-destructive test suite (does NOT drop DB) verifying: setup status returns setup_required=false, admin login with rsyg8417@gmail.com/Admin123! works and returns access_token+user, /auth/me with Bearer token returns user incl. phone, /auth/me WITHOUT token returns 401, /auth/me with bad token returns 401, existing site/block/units/persons/accounts still present, dashboard KPIs correct, /sync/batch WITHOUT auth returns 401, /sync/batch WITH auth successfully processes an /expenses op, collection FIFO regression works, duplicate bank reference still returns 409, debtors xlsx export still works, and mongo counts (users/sites/blocks/units/persons/accruals/journal_entries) are >= previous values (no data loss). 17/17 tests pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_asys_401_verification.py",
+    "/app/backend/tests/test_asys_backend.py",
+    "/app/test_reports/pytest/iter2_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py sync/batch expects op shape {client_id, endpoint, method?, body}. Method is ignored (endpoint routing decides). Frontend queue must send 'endpoint' not 'path' - verify Layout.jsx sync client uses the same key.",
+    "sync/batch returns {results:[{client_id, ok, data|error, status?}]} — non-standard vs REST; frontend should not treat missing 'status' key as failure. Confirm frontend interceptor doesn't misclassify sync/batch inner failures as global 401 events.",
+    "Unused 'from httpx import AsyncClient' import inside sync_batch (dead code) — cleanup suggested.",
+    "GET /api/users lacks admin role check per iter1 note; still applies (require_role('admin') would enforce)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_asys_401_verification.py (new; non-destructive verification suite)"
+  ],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "N/A (skipped per request)"},
+  "test_credentials": "admin: rsyg8417@gmail.com / Admin123! (preserved from iter1). Also existing: denetci@test.com/Denetci1!, muhasebe@test.com/Muhasebe1!.",
+  "seed_data_creation": "None. DB was preserved. Test added one small collection (100 kurus) and one small expense (1234 kurus via sync/batch) as additive fixtures with TEST_/SYNC- markers.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 2 verified backend post frontend 401 fix. DB counts before test: users=3 sites=1 blocks=1 units=3 persons=2 accruals=7 journal_entries=13. All auth flows return correct status codes (200 with valid token, 401 without/bad token). /sync/batch endpoint uses op shape {client_id, endpoint, body}; NOT {path, method}. Non-destructive test file is /app/backend/tests/test_asys_401_verification.py — safe to re-run. Original iter1 test file /app/backend/tests/test_asys_backend.py DROPS the DB via clean_db fixture — do NOT run it if preserving data matters.",
+  "rca of the issue": "The user-reported '401 background operation failed' toast was a frontend-only UX issue caused by axios (or fetch wrapper) surfacing background /auth/me and /sync/batch 401 responses to the user when no token was present. Backend behavior is correct: both endpoints correctly return 401 when auth is missing. Fix per main agent: (a) frontend api.js response interceptor swallows 401 silently and emits 'asys-auth-lost' event, (b) AuthContext only calls /auth/me if hasToken(), (c) Layout.jsx syncQueue only runs when hasToken(). Verified via tests 04/05 (401 shape correct) and 30/31 (sync/batch 401 without auth, 200 with auth). No backend regression; all previously-working endpoints still work; no data loss."
+}
