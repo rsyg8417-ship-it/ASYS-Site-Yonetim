@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import { api, API_BASE } from "@/lib/api";
 import { useSite } from "@/context/SiteContext";
 import { useAuth } from "@/context/AuthContext";
 import { formatTL, formatDate, todayISO, STATUS_LABEL, toKurus } from "@/lib/format";
@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Receipt, Layers } from "lucide-react";
+import { Receipt, Layers, Flame, Upload } from "lucide-react";
 
 export default function Accruals() {
   const { siteId } = useSite();
@@ -24,6 +24,12 @@ export default function Accruals() {
   const [extraForm, setExtraForm] = useState({ unit_id: "", due_date: todayISO(), description: "", amount: "" });
   const [openBatch, setOpenBatch] = useState(false);
   const [openExtra, setOpenExtra] = useState(false);
+  const [openGas, setOpenGas] = useState(false);
+  const [gasForm, setGasForm] = useState({ period: new Date().toISOString().slice(0,7), due_date: todayISO() });
+  const [gasFile, setGasFile] = useState(null);
+  const [gasResult, setGasResult] = useState(null);
+  const [gasBusy, setGasBusy] = useState(false);
+  const gasFileRef = useRef(null);
   const canWrite = user?.role !== "denetci";
 
   const load = async () => {
@@ -72,6 +78,60 @@ export default function Accruals() {
           <p className="text-sm text-slate-500 mt-1">Toplu tahakkuk üretimi ve ek tahakkuk</p></div>
         {canWrite && (
           <div className="flex gap-2">
+            <Dialog open={openGas} onOpenChange={(v)=>{setOpenGas(v); if (!v) { setGasResult(null); setGasFile(null); }}}>
+              <DialogTrigger asChild><Button variant="outline" data-testid="natural-gas-import-btn"><Flame className="w-4 h-4 mr-1" />Doğalgaz Excel</Button></DialogTrigger>
+              <DialogContent className="bg-white max-w-lg">
+                <DialogHeader><DialogTitle>Doğalgaz Tüketim Excel İçe Aktar</DialogTitle></DialogHeader>
+                {!gasResult ? (
+                  <div className="space-y-3">
+                    <p className="text-xs text-slate-600">Excel sütunları: <span className="font-mono">daire, tuketim, tutar, aciklama</span> (aciklama isteğe bağlı). Her satır ilgili daire için ek tahakkuk oluşturur.</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div><Label>Dönem</Label><Input value={gasForm.period} onChange={(e)=>setGasForm({...gasForm, period: e.target.value})} data-testid="gas-period-input" /></div>
+                      <div><Label>Vade</Label><Input type="date" value={gasForm.due_date} onChange={(e)=>setGasForm({...gasForm, due_date: e.target.value})} data-testid="gas-due-date-input" /></div>
+                    </div>
+                    <div>
+                      <Label>Excel Dosyası (.xlsx)</Label>
+                      <Input ref={gasFileRef} type="file" accept=".xlsx" onChange={(e)=>setGasFile(e.target.files?.[0] || null)} data-testid="gas-file-input" />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2" data-testid="gas-import-result">
+                    <div className="text-sm"><span className="font-semibold text-emerald-600">{gasResult.created}</span> tahakkuk oluşturuldu (toplam {gasResult.total} satır).</div>
+                    {gasResult.errors?.length > 0 && (
+                      <div className="max-h-56 overflow-y-auto border rounded p-2 bg-rose-50 space-y-1">
+                        {gasResult.errors.map((er, i) => (
+                          <div key={i} className="text-xs text-rose-700 font-mono">Satır {er.row}: {er.error}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <DialogFooter>
+                  {!gasResult ? (
+                    <Button disabled={!gasFile || gasBusy} onClick={async ()=>{
+                      const fd = new FormData();
+                      fd.append("site_id", siteId); fd.append("period", gasForm.period); fd.append("due_date", gasForm.due_date); fd.append("file", gasFile);
+                      setGasBusy(true);
+                      try {
+                        const token = localStorage.getItem("asys_token");
+                        const res = await fetch(`${API_BASE}/accruals/import/natural-gas`, {
+                          method: "POST", body: fd,
+                          headers: token ? { Authorization: `Bearer ${token}` } : {},
+                        });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data?.detail || "Hata");
+                        setGasResult(data);
+                        toast.success(`${data.created} tahakkuk oluşturuldu`);
+                        load();
+                      } catch (e) { toast.error(e.message || "İçe aktarma başarısız"); }
+                      finally { setGasBusy(false); }
+                    }} data-testid="gas-run-btn">{gasBusy ? "Yükleniyor..." : "İçe Aktar"}</Button>
+                  ) : (
+                    <Button onClick={()=>{setOpenGas(false); setGasResult(null); setGasFile(null); if (gasFileRef.current) gasFileRef.current.value="";}} data-testid="gas-close-btn">Kapat</Button>
+                  )}
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
             <Dialog open={openExtra} onOpenChange={setOpenExtra}>
               <DialogTrigger asChild><Button variant="outline" data-testid="extra-accrual-btn"><Receipt className="w-4 h-4 mr-1" />Ek Tahakkuk</Button></DialogTrigger>
               <DialogContent className="bg-white">

@@ -1,0 +1,26 @@
+{
+  "summary": "Iteration 7 backend-only testing — all 4 new features validated. 14/14 pytest cases PASS. FEATURE 1 (Unit edit/toggle): PATCH /units/{id} accepts partial body {active}, {area_m2, share_ratio}; other fields preserved; empty body → 400; unknown id → 404. FEATURE 2 (Person edit/unit_id/active): PATCH /persons/{id} with unit_id + active persists; POST /persons with unit_id succeeds and returns new record. FEATURE 3 (Excel collections import): POST /collections/import parses xlsx with Turkish headers (tarih,daire,tutar,referans,aciklama) and TR decimal format '234,56'; creates valid rows, reports 'Daire bulunamadı' error for invalid unit_no; re-submitting same file returns 'Mükerrer referans' via unique index on (site_id,account_id,account_kind,reference); invalid account_kind → 400. FEATURE 4 (Natural gas import): POST /accruals/import/natural-gas creates extra accruals with description starting 'Doğalgaz - <tuketim> m³'; validates unit_no; closed-period test uses distant period 2099-11 (close→attempt→400 'kapalı'→reopen). Regression: admin login rsyg8417@gmail.com/Admin123! works, ≥3 active units, ≥2 active persons preserved. No data loss.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter7_excel_edit.py",
+    "/app/test_reports/pytest/iter7_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 1509 lines — should be split (auth/units/persons/imports/periods) for maintainability (>700 line threshold).",
+    "collections/import calls create_collection() in a loop which itself performs a DB read for unique-reference check per row; for large files this is O(n) DB round-trips. Consider bulk validation via a single find with $in on references before insert.",
+    "natural-gas import: check_period_open runs once (against due_date), but each row's extra_accrual() likely re-checks (via write path). Duplicate work; not a bug but wasted queries.",
+    "_parse_date silently returns the raw string when it can't parse — downstream may store bad date strings. Consider raising a row-level error instead.",
+    "PersonPatchIn.unit_id: passing empty string '' is treated as 'update to empty' (not None), which is desirable, but if API caller wants to clear the link they'd send \"\" — behavior is consistent with model_dump filtering only None values. OK, but document.",
+    "Excel import endpoints accept any file extension; no MIME/extension guard. openpyxl will raise on non-xlsx which is caught, but a friendlier 400 upfront is better."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter7_excel_edit.py"],
+  "success_rate": {"backend": "100%", "frontend": "not tested (backend-only per request)"},
+  "test_credentials": "rsyg8417@gmail.com / Admin123! — password unchanged during tests, verified working at end.",
+  "seed_data_creation": "Test-created data left behind (non-destructive per request): (a) 1 person 'TEST_Iter7_Person' created & set inactive; (b) ~3 collections with refs starting 'TESTIMP-<ts>' and 1 with 'TESTDUP-<ts>' on cash account; (c) ~2 natural-gas accruals for period 2099-12 (due 2099-12-15); (d) period record for site 2099-11 (closed then reopened). None affect ≥3 active units / ≥2 active persons invariants.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iter7 backend features fully green. Endpoints tested: PATCH /api/units/{id} (partial UnitPatchIn), PATCH /api/persons/{id} (partial PersonPatchIn), POST /api/persons (with unit_id), POST /api/collections/import (multipart: site_id, account_id, account_kind, file), POST /api/accruals/import/natural-gas (multipart: site_id, period, due_date, file). Excel helpers: _parse_excel_rows uses first row as lowercase headers; _to_kurus handles TR '1.234,56'; _parse_date returns YYYY-MM-DD. Unique reference index is partial on (site_id,account_id,account_kind,reference) where reference != ''. When testing multipart with requests.Session that has Content-Type: application/json default, pass Content-Type: None in the per-call headers or use plain requests.post. Testids to test on frontend next: unit-edit-<id>, unit-toggle-<id>, person-unit-select, import-collections-btn, import-file-input, import-account-select, import-run-btn, natural-gas-import-btn, gas-period-input, gas-due-date-input, gas-file-input, gas-run-btn.",
+  "rca of the issue": "N/A — no defects found. Only a self-inflicted test issue: pytest session had Content-Type: application/json which prevented requests from setting multipart/form-data boundary automatically → 422s. Fixed by overriding Content-Type: None in the multipart calls."
+}

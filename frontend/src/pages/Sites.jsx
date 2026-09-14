@@ -9,8 +9,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Building2, Plus, Trash2 } from "lucide-react";
+import { Building2, Plus, Pencil } from "lucide-react";
+
+const emptyUnit = { id: null, block_id: "", no: "", kind: "konut", area_m2: 0, share_ratio: 0, active: true };
 
 export default function Sites() {
   const { sites, siteId, refreshSites, changeSite } = useSite();
@@ -19,7 +22,7 @@ export default function Sites() {
   const [units, setUnits] = useState([]);
   const [siteForm, setSiteForm] = useState({ name: "", address: "", tax_no: "" });
   const [blockName, setBlockName] = useState("");
-  const [unitForm, setUnitForm] = useState({ block_id: "", no: "", kind: "konut", area_m2: 0, share_ratio: 0 });
+  const [unitForm, setUnitForm] = useState(emptyUnit);
   const [openSite, setOpenSite] = useState(false);
   const [openUnit, setOpenUnit] = useState(false);
 
@@ -45,9 +48,23 @@ export default function Sites() {
     try { await api.post("/blocks", { site_id: siteId, name: blockName }); setBlockName(""); load(); toast.success("Blok eklendi"); }
     catch (e) { toast.error(e?.response?.data?.detail || "Hata"); }
   };
-  const createUnit = async () => {
-    try { await api.post("/units", { site_id: siteId, ...unitForm, area_m2: parseFloat(unitForm.area_m2)||0, share_ratio: parseFloat(unitForm.share_ratio)||0 });
-      setOpenUnit(false); setUnitForm({ block_id: "", no: "", kind: "konut", area_m2: 0, share_ratio: 0 }); load(); toast.success("Bağımsız bölüm eklendi"); }
+  const openNewUnit = () => { setUnitForm(emptyUnit); setOpenUnit(true); };
+  const openEditUnit = (u) => { setUnitForm({ id: u.id, block_id: u.block_id, no: u.no, kind: u.kind, area_m2: u.area_m2, share_ratio: u.share_ratio, active: u.active !== false }); setOpenUnit(true); };
+  const saveUnit = async () => {
+    const payload = { block_id: unitForm.block_id, no: unitForm.no, kind: unitForm.kind, area_m2: parseFloat(unitForm.area_m2) || 0, share_ratio: parseFloat(unitForm.share_ratio) || 0, active: unitForm.active };
+    try {
+      if (unitForm.id) {
+        await api.patch(`/units/${unitForm.id}`, payload);
+        toast.success("Bağımsız bölüm güncellendi");
+      } else {
+        await api.post("/units", { site_id: siteId, ...payload });
+        toast.success("Bağımsız bölüm eklendi");
+      }
+      setOpenUnit(false); load();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Hata"); }
+  };
+  const toggleActive = async (u) => {
+    try { await api.patch(`/units/${u.id}`, { active: !(u.active !== false) }); load(); toast.success(u.active !== false ? "Pasife alındı" : "Aktifleştirildi"); }
     catch (e) { toast.error(e?.response?.data?.detail || "Hata"); }
   };
 
@@ -107,57 +124,80 @@ export default function Sites() {
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">Bağımsız Bölümler ({units.length})</CardTitle>
               {canWrite && blocks.length > 0 && (
-                <Dialog open={openUnit} onOpenChange={setOpenUnit}>
-                  <DialogTrigger asChild><Button size="sm" data-testid="new-unit-btn"><Plus className="w-4 h-4 mr-1" />Yeni</Button></DialogTrigger>
-                  <DialogContent className="bg-white">
-                    <DialogHeader><DialogTitle>Yeni Bağımsız Bölüm</DialogTitle></DialogHeader>
-                    <div className="space-y-3">
-                      <div><Label>Blok</Label>
-                        <Select value={unitForm.block_id} onValueChange={(v)=>setUnitForm({...unitForm, block_id: v})}>
-                          <SelectTrigger data-testid="unit-block-select"><SelectValue placeholder="Blok seç" /></SelectTrigger>
-                          <SelectContent className="bg-white">{blocks.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent>
-                        </Select>
-                      </div>
-                      <div><Label>Daire No</Label><Input value={unitForm.no} onChange={(e)=>setUnitForm({...unitForm, no: e.target.value})} data-testid="unit-no-input" /></div>
-                      <div><Label>Tür</Label>
-                        <Select value={unitForm.kind} onValueChange={(v)=>setUnitForm({...unitForm, kind: v})}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent className="bg-white">
-                            <SelectItem value="konut">Konut</SelectItem>
-                            <SelectItem value="isyeri">İşyeri</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div><Label>m²</Label><Input type="number" value={unitForm.area_m2} onChange={(e)=>setUnitForm({...unitForm, area_m2: e.target.value})} /></div>
-                        <div><Label>Arsa Payı</Label><Input type="number" value={unitForm.share_ratio} onChange={(e)=>setUnitForm({...unitForm, share_ratio: e.target.value})} /></div>
-                      </div>
-                    </div>
-                    <DialogFooter><Button onClick={createUnit} data-testid="unit-save-btn">Kaydet</Button></DialogFooter>
-                  </DialogContent>
-                </Dialog>
+                <Button size="sm" onClick={openNewUnit} data-testid="new-unit-btn"><Plus className="w-4 h-4 mr-1" />Yeni</Button>
               )}
             </CardHeader>
             <CardContent>
               <Table>
-                <TableHeader><TableRow><TableHead>Blok</TableHead><TableHead>No</TableHead><TableHead>Tür</TableHead><TableHead className="text-right">m²</TableHead><TableHead className="text-right">Arsa Payı</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Blok</TableHead><TableHead>No</TableHead><TableHead>Tür</TableHead><TableHead className="text-right">m²</TableHead><TableHead className="text-right">Arsa Payı</TableHead><TableHead>Durum</TableHead><TableHead></TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {units.map(u => (
-                    <TableRow key={u.id} data-testid={`unit-row-${u.id}`}>
-                      <TableCell>{blocks.find(b=>b.id===u.block_id)?.name || "-"}</TableCell>
-                      <TableCell className="font-medium">{u.no}</TableCell>
-                      <TableCell>{u.kind === "konut" ? "Konut" : "İşyeri"}</TableCell>
-                      <TableCell className="text-right font-mono">{u.area_m2}</TableCell>
-                      <TableCell className="text-right font-mono">{u.share_ratio}</TableCell>
-                    </TableRow>
-                  ))}
-                  {units.length === 0 && <TableRow><TableCell colSpan={5} className="text-center text-slate-400 py-4">Kayıt yok</TableCell></TableRow>}
+                  {units.map(u => {
+                    const active = u.active !== false;
+                    return (
+                      <TableRow key={u.id} data-testid={`unit-row-${u.id}`} className={active ? "" : "opacity-60"}>
+                        <TableCell>{blocks.find(b=>b.id===u.block_id)?.name || "-"}</TableCell>
+                        <TableCell className="font-medium">{u.no}</TableCell>
+                        <TableCell>{u.kind === "konut" ? "Konut" : "İşyeri"}</TableCell>
+                        <TableCell className="text-right font-mono">{u.area_m2}</TableCell>
+                        <TableCell className="text-right font-mono">{u.share_ratio}</TableCell>
+                        <TableCell>{active ? <Badge className="bg-emerald-500">Aktif</Badge> : <Badge variant="secondary">Pasif</Badge>}</TableCell>
+                        <TableCell>
+                          {canWrite && (
+                            <div className="flex gap-1 justify-end">
+                              <Button size="sm" variant="ghost" onClick={()=>openEditUnit(u)} data-testid={`unit-edit-${u.id}`}><Pencil className="w-3.5 h-3.5" /></Button>
+                              <Button size="sm" variant="ghost" onClick={()=>toggleActive(u)} data-testid={`unit-toggle-${u.id}`}>{active ? "Pasife Al" : "Aktifleştir"}</Button>
+                            </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {units.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-slate-400 py-4">Kayıt yok</TableCell></TableRow>}
                 </TableBody>
               </Table>
             </CardContent>
           </Card>
         </div>
       )}
+
+      {/* Unit form dialog (create or edit) */}
+      <Dialog open={openUnit} onOpenChange={setOpenUnit}>
+        <DialogContent className="bg-white">
+          <DialogHeader><DialogTitle>{unitForm.id ? "Bağımsız Bölüm Düzenle" : "Yeni Bağımsız Bölüm"}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>Blok</Label>
+              <Select value={unitForm.block_id} onValueChange={(v)=>setUnitForm({...unitForm, block_id: v})}>
+                <SelectTrigger data-testid="unit-block-select"><SelectValue placeholder="Blok seç" /></SelectTrigger>
+                <SelectContent className="bg-white">{blocks.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div><Label>Daire No</Label><Input value={unitForm.no} onChange={(e)=>setUnitForm({...unitForm, no: e.target.value})} data-testid="unit-no-input" /></div>
+            <div><Label>Tür</Label>
+              <Select value={unitForm.kind} onValueChange={(v)=>setUnitForm({...unitForm, kind: v})}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent className="bg-white">
+                  <SelectItem value="konut">Konut</SelectItem>
+                  <SelectItem value="isyeri">İşyeri</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label>m²</Label><Input type="number" value={unitForm.area_m2} onChange={(e)=>setUnitForm({...unitForm, area_m2: e.target.value})} /></div>
+              <div><Label>Arsa Payı</Label><Input type="number" value={unitForm.share_ratio} onChange={(e)=>setUnitForm({...unitForm, share_ratio: e.target.value})} /></div>
+            </div>
+            <div><Label>Durum</Label>
+              <Select value={unitForm.active ? "true" : "false"} onValueChange={(v)=>setUnitForm({...unitForm, active: v === "true"})}>
+                <SelectTrigger data-testid="unit-active-select"><SelectValue /></SelectTrigger>
+                <SelectContent className="bg-white">
+                  <SelectItem value="true">Aktif</SelectItem>
+                  <SelectItem value="false">Pasif</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter><Button onClick={saveUnit} data-testid="unit-save-btn">Kaydet</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

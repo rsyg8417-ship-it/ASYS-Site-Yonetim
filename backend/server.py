@@ -165,6 +165,16 @@ class UnitIn(BaseModel):
     kind: Literal["konut", "isyeri"] = "konut"
     area_m2: Optional[float] = 0
     share_ratio: Optional[float] = 0
+    active: bool = True
+
+
+class UnitPatchIn(BaseModel):
+    block_id: Optional[str] = None
+    no: Optional[str] = None
+    kind: Optional[Literal["konut", "isyeri"]] = None
+    area_m2: Optional[float] = None
+    share_ratio: Optional[float] = None
+    active: Optional[bool] = None
 
 class PersonIn(BaseModel):
     site_id: str
@@ -173,7 +183,18 @@ class PersonIn(BaseModel):
     phone: Optional[str] = ""
     email: Optional[str] = ""
     tc_no: Optional[str] = ""
+    unit_id: Optional[str] = ""
     active: bool = True
+
+
+class PersonPatchIn(BaseModel):
+    kind: Optional[Literal["malik", "kiraci"]] = None
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    tc_no: Optional[str] = None
+    unit_id: Optional[str] = None
+    active: Optional[bool] = None
 
 class RelationIn(BaseModel):
     site_id: str
@@ -620,9 +641,13 @@ async def create_unit(inp: UnitIn, u: dict = Depends(require_role("admin", "muha
 
 
 @api.patch("/units/{uid}")
-async def update_unit(uid: str, inp: UnitIn, u: dict = Depends(require_role("admin", "muhasebe"))):
-    await db.units.update_one({"id": uid}, {"$set": inp.model_dump()})
-    await audit(u, "unit_update", "unit", uid, site_id=inp.site_id)
+async def update_unit(uid: str, inp: UnitPatchIn, u: dict = Depends(require_role("admin", "muhasebe"))):
+    unit = await db.units.find_one({"id": uid})
+    if not unit: raise HTTPException(404, "Bağımsız bölüm bulunamadı")
+    updates = {k: v for k, v in inp.model_dump().items() if v is not None}
+    if not updates: raise HTTPException(400, "Güncellenecek alan yok")
+    await db.units.update_one({"id": uid}, {"$set": updates})
+    await audit(u, "unit_update", "unit", uid, {"fields": list(updates.keys())}, site_id=unit["site_id"])
     return await db.units.find_one({"id": uid}, {"_id": 0})
 
 
@@ -653,9 +678,13 @@ async def create_person(inp: PersonIn, u: dict = Depends(require_role("admin", "
 
 
 @api.patch("/persons/{pid}")
-async def update_person(pid: str, inp: PersonIn, u: dict = Depends(require_role("admin", "muhasebe"))):
-    await db.persons.update_one({"id": pid}, {"$set": inp.model_dump()})
-    await audit(u, "person_update", "person", pid, site_id=inp.site_id)
+async def update_person(pid: str, inp: PersonPatchIn, u: dict = Depends(require_role("admin", "muhasebe"))):
+    person = await db.persons.find_one({"id": pid})
+    if not person: raise HTTPException(404, "Kişi bulunamadı")
+    updates = {k: v for k, v in inp.model_dump().items() if v is not None}
+    if not updates: raise HTTPException(400, "Güncellenecek alan yok")
+    await db.persons.update_one({"id": pid}, {"$set": updates})
+    await audit(u, "person_update", "person", pid, {"fields": list(updates.keys())}, site_id=person["site_id"])
     return await db.persons.find_one({"id": pid}, {"_id": 0})
 
 
@@ -948,6 +977,171 @@ async def list_collections(site_id: str, unit_id: Optional[str] = None, user: di
     q = {"site_id": site_id}
     if unit_id: q["unit_id"] = unit_id
     return await db.payments.find(q, {"_id": 0}).sort("date", -1).to_list(2000)
+
+
+# ---------- Excel Import: Collections (bank statement) ----------
+from fastapi import UploadFile, File, Form
+
+async def _parse_excel_rows(file: UploadFile) -> List[Dict[str, Any]]:
+    """Parse uploaded xlsx to list of dicts using first row as headers (Turkish or English)."""
+    from openpyxl import load_workbook
+    content = await file.read()
+    wb = load_workbook(io.BytesIO(content), data_only=True)
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return []
+    headers = [str(h).strip().lower() if h is not None else "" for h in rows[0]]
+    result = []
+    for r in rows[1:]:
+        if all(c is None or (isinstance(c, str) and not c.strip()) for c in r):
+            continue
+        result.append({headers[i]: r[i] for i in range(min(len(headers), len(r)))})
+    return result
+
+
+def _to_kurus(v) -> int:
+    if v is None: return 0
+    if isinstance(v, (int, float)):
+        return int(round(float(v) * 100))
+    s = str(v).strip().replace("₺", "").replace("TL", "").replace(" ", "")
+    # Turkish: 1.234,56 or 1234,56 or 1234.56
+    if "," in s and "." in s:
+        s = s.replace(".", "").replace(",", ".")
+    elif "," in s:
+        s = s.replace(",", ".")
+    try: return int(round(float(s) * 100))
+    except ValueError: return 0
+
+
+def _parse_date(v) -> str:
+    if v is None: return ""
+    if hasattr(v, "isoformat"):
+        return v.isoformat()[:10]
+    s = str(v).strip()
+    # try YYYY-MM-DD
+    for sep in ("-", "/", "."):
+        parts = s.split(sep)
+        if len(parts) == 3:
+            if len(parts[0]) == 4:
+                return f"{int(parts[0]):04d}-{int(parts[1]):02d}-{int(parts[2]):02d}"
+            else:
+                return f"{int(parts[2]):04d}-{int(parts[1]):02d}-{int(parts[0]):02d}"
+    return s
+
+
+@api.post("/collections/import")
+async def import_collections(
+    site_id: str = Form(...),
+    account_id: str = Form(...),
+    account_kind: str = Form(...),
+    file: UploadFile = File(...),
+    u: dict = Depends(require_role("admin", "muhasebe")),
+):
+    """
+    Excel columns (headers required, Turkish): tarih, daire, tutar, referans, aciklama.
+    Also accepts EN: date, unit, amount, reference, description.
+    """
+    if account_kind not in ("cash", "bank"):
+        raise HTTPException(400, "Geçersiz hesap türü")
+    rows = await _parse_excel_rows(file)
+    if not rows:
+        raise HTTPException(400, "Excel dosyası boş veya okunamadı")
+
+    units = await db.units.find({"site_id": site_id}, {"_id": 0}).to_list(5000)
+    unit_by_no = {str(un["no"]).strip(): un for un in units}
+
+    def pick(row, keys):
+        for k in keys:
+            if k in row and row[k] not in (None, ""):
+                return row[k]
+        return None
+
+    created = 0
+    errors: List[dict] = []
+    for idx, row in enumerate(rows, start=2):
+        try:
+            date_val = _parse_date(pick(row, ["tarih", "date"]))
+            unit_no = str(pick(row, ["daire", "daire no", "bağımsız bölüm", "unit"]) or "").strip()
+            amount_kurus = _to_kurus(pick(row, ["tutar", "amount"]))
+            ref = str(pick(row, ["referans", "reference"]) or "").strip()
+            note = str(pick(row, ["aciklama", "açıklama", "description", "not"]) or "").strip()
+            if not date_val or not unit_no or amount_kurus <= 0:
+                errors.append({"row": idx, "error": "Eksik alan: tarih/daire/tutar"}); continue
+            unit = unit_by_no.get(unit_no)
+            if not unit:
+                errors.append({"row": idx, "error": f"Daire bulunamadı: {unit_no}"}); continue
+            inp = CollectionIn(
+                site_id=site_id, unit_id=unit["id"], account_id=account_id,
+                account_kind=account_kind, date=date_val, amount_kurus=amount_kurus,
+                reference=ref, note=note,
+            )
+            await create_collection(inp, u)
+            created += 1
+        except HTTPException as e:
+            errors.append({"row": idx, "error": str(e.detail)})
+        except Exception as e:
+            errors.append({"row": idx, "error": str(e)})
+
+    await audit(u, "collections_import", "payment", "", {"created": created, "errors": len(errors)}, site_id=site_id)
+    return {"created": created, "errors": errors, "total": len(rows)}
+
+
+@api.post("/accruals/import/natural-gas")
+async def import_natural_gas(
+    site_id: str = Form(...),
+    period: str = Form(...),  # YYYY-MM
+    due_date: str = Form(...),
+    file: UploadFile = File(...),
+    u: dict = Depends(require_role("admin", "muhasebe")),
+):
+    """
+    Excel columns: daire, tuketim, tutar, aciklama (optional).
+    Creates an 'extra' accrual for each row (description: 'Doğalgaz - <tuketim>').
+    """
+    await check_period_open(site_id, due_date)
+    rows = await _parse_excel_rows(file)
+    if not rows:
+        raise HTTPException(400, "Excel dosyası boş veya okunamadı")
+
+    units = await db.units.find({"site_id": site_id}, {"_id": 0}).to_list(5000)
+    unit_by_no = {str(un["no"]).strip(): un for un in units}
+
+    def pick(row, keys):
+        for k in keys:
+            if k in row and row[k] not in (None, ""):
+                return row[k]
+        return None
+
+    created = 0
+    errors: List[dict] = []
+    for idx, row in enumerate(rows, start=2):
+        try:
+            unit_no = str(pick(row, ["daire", "daire no", "bağımsız bölüm", "unit"]) or "").strip()
+            consumption = pick(row, ["tuketim", "tüketim", "consumption", "m3", "kwh"])
+            amount_kurus = _to_kurus(pick(row, ["tutar", "amount", "bedel"]))
+            note = str(pick(row, ["aciklama", "açıklama", "description", "not"]) or "").strip()
+            if not unit_no or amount_kurus <= 0:
+                errors.append({"row": idx, "error": "Eksik alan: daire/tutar"}); continue
+            unit = unit_by_no.get(unit_no)
+            if not unit:
+                errors.append({"row": idx, "error": f"Daire bulunamadı: {unit_no}"}); continue
+            desc_parts = ["Doğalgaz"]
+            if consumption is not None: desc_parts.append(f"{consumption} m³")
+            if note: desc_parts.append(note)
+            inp = AccrualExtraIn(
+                site_id=site_id, unit_id=unit["id"], due_date=due_date,
+                description=" - ".join(desc_parts), amount_kurus=amount_kurus,
+            )
+            await extra_accrual(inp, u)
+            created += 1
+        except HTTPException as e:
+            errors.append({"row": idx, "error": str(e.detail)})
+        except Exception as e:
+            errors.append({"row": idx, "error": str(e)})
+
+    await audit(u, "natural_gas_import", "accrual", "", {"created": created, "period": period, "errors": len(errors)}, site_id=site_id)
+    return {"created": created, "errors": errors, "total": len(rows)}
 
 
 @api.get("/advances")
