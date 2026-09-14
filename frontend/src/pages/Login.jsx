@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +47,11 @@ export default function Login() {
               <Button type="submit" disabled={loading} className="w-full bg-slate-900 hover:bg-slate-800" data-testid="login-submit-btn">
                 {loading ? "Giriş yapılıyor..." : "Giriş Yap"}
               </Button>
+              <div className="text-center pt-1">
+                <Link to="/forgot-password" className="text-sm text-slate-500 hover:text-slate-900 hover:underline" data-testid="forgot-password-link">
+                  Parolamı unuttum
+                </Link>
+              </div>
             </form>
           </CardContent>
         </Card>

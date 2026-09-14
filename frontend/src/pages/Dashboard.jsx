@@ -1,19 +1,31 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useSite } from "@/context/SiteContext";
-import { formatTL } from "@/lib/format";
+import { formatTL, fromKurus } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Building2, Users, AlertCircle, TrendingUp, TrendingDown, Wallet, CircleDollarSign } from "lucide-react";
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from "recharts";
 
 export default function Dashboard() {
   const { siteId, sites } = useSite();
   const [data, setData] = useState(null);
+  const [activity, setActivity] = useState([]);
 
   useEffect(() => {
     if (!siteId) return;
     (async () => {
-      try { const r = await api.get("/dashboard", { params: { site_id: siteId } }); setData(r.data); }
-      catch { setData(null); }
+      try {
+        const [r, a] = await Promise.all([
+          api.get("/dashboard", { params: { site_id: siteId } }),
+          api.get("/dashboard/activity", { params: { site_id: siteId, days: 7 } }),
+        ]);
+        setData(r.data);
+        setActivity(a.data.map((d) => ({
+          date: new Date(d.date).toLocaleDateString("tr-TR", { day: "2-digit", month: "short" }),
+          tahsilat: fromKurus(d.collections_kurus),
+          gider: fromKurus(d.expenses_kurus),
+        })));
+      } catch { setData(null); }
     })();
   }, [siteId]);
 
@@ -36,6 +48,8 @@ export default function Dashboard() {
     sky: "bg-sky-50 text-sky-700 border-sky-200",
     slate: "bg-slate-50 text-slate-700 border-slate-200",
   };
+
+  const fmtTL = (v) => new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 0 }).format(v || 0);
 
   return (
     <div className="space-y-6" data-testid="dashboard-page">
@@ -64,6 +78,28 @@ export default function Dashboard() {
           );
         })}
       </div>
+
+      <Card className="bg-white" data-testid="activity-chart-card">
+        <CardHeader>
+          <CardTitle className="text-base">Son 7 Gün Hareketi</CardTitle>
+          <p className="text-xs text-slate-500">Günlük tahsilat ve gider akışı</p>
+        </CardHeader>
+        <CardContent>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={activity} margin={{ top: 10, right: 24, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="date" tick={{ fontSize: 12, fill: "#64748b" }} />
+                <YAxis tick={{ fontSize: 12, fill: "#64748b" }} tickFormatter={fmtTL} />
+                <Tooltip formatter={(v) => fmtTL(v)} contentStyle={{ borderRadius: 8, border: "1px solid #e2e8f0" }} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Line type="monotone" dataKey="tahsilat" stroke="#10b981" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} name="Tahsilat" />
+                <Line type="monotone" dataKey="gider" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} name="Gider" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

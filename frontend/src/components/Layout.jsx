@@ -5,13 +5,14 @@ import { useSite } from "@/context/SiteContext";
 import { api, hasToken } from "@/lib/api";
 import { getQueue, removeFromQueue, markConflict } from "@/lib/offline";
 import { ROLE_LABEL } from "@/lib/format";
+import SessionWatcher from "@/components/SessionWatcher";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Toaster, toast } from "sonner";
 import {
   LayoutDashboard, Building2, Users, Receipt, CreditCard, Wallet, BookOpen,
-  Calendar, ScrollText, FileBarChart, Shield, LogOut, WifiOff, Wifi, RefreshCw
+  Calendar, ScrollText, FileBarChart, Shield, LogOut, WifiOff, Wifi, RefreshCw, UserCircle
 } from "lucide-react";
 
 const nav = [
@@ -88,6 +89,7 @@ export default function Layout() {
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
       <Toaster position="top-right" richColors />
+      <SessionWatcher onExpired={() => { logout(); navigate("/login"); }} />
       {/* Sidebar */}
       <aside className="w-64 bg-slate-900 text-slate-100 flex flex-col border-r border-slate-800" data-testid="app-sidebar">
         <div className="px-5 py-5 border-b border-slate-800">
@@ -124,8 +126,16 @@ export default function Layout() {
         <div className="border-t border-slate-800 p-3">
           <div className="text-xs text-slate-400 truncate">{user?.name}</div>
           <div className="text-[10px] text-slate-500">{ROLE_LABEL[user?.role]}</div>
+          <NavLink to="/profile" data-testid="nav-profile"
+            className={({ isActive }) =>
+              `mt-2 flex items-center gap-2 px-2 py-1.5 text-xs rounded transition-colors ${
+                isActive ? "bg-sky-500/10 text-sky-400" : "text-slate-300 hover:bg-slate-800"
+              }`
+            }>
+            <UserCircle className="w-3.5 h-3.5" />Profil
+          </NavLink>
           <Button variant="ghost" size="sm" onClick={doLogout} data-testid="logout-btn"
-            className="w-full mt-2 justify-start text-slate-300 hover:text-white hover:bg-slate-800">
+            className="w-full mt-1 justify-start text-slate-300 hover:text-white hover:bg-slate-800">
             <LogOut className="w-3.5 h-3.5 mr-2" />Çıkış
           </Button>
         </div>

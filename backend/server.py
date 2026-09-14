@@ -11,14 +11,20 @@ import uuid
 import bcrypt
 import jwt
 import logging
+import re
+import ipaddress
 from datetime import datetime, timezone, timedelta, date
 from typing import List, Optional, Literal, Any, Dict
+from html import escape
+from html.parser import HTMLParser
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
+import httpx
 
 # ---------- Setup ----------
 MONGO_URL = os.environ["MONGO_URL"]
@@ -26,6 +32,11 @@ DB_NAME = os.environ["DB_NAME"]
 JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALG = "HS256"
 ACCESS_TTL_MIN = 60 * 12  # 12 hours
+
+EMAIL_BASE_URL = "https://integrations.emergentagent.com"
+EMAIL_KEY = os.environ.get("EMERGENT_EMAIL_KEY", "")
+EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "ASYS")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "").rstrip("/")
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
@@ -238,6 +249,113 @@ class PeriodActionIn(BaseModel):
     reason: Optional[str] = ""
 
 
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=6)
+
+
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordIn(BaseModel):
+    token: str
+    new_password: str = Field(min_length=6)
+
+
+# ---------- Email guardrail gate (from Resend playbook) ----------
+_SHORTENERS = ("bit.ly", "tinyurl.com", "t.co", "is.gd", "cutt.ly", "goo.gl", "rebrand.ly")
+_CRED_ASK = ("reply with your password", "reply with the code", "send your password", "cvv",
+             "send us your password", "enter your password below", "confirm your card number",
+             "your full card number", "seed phrase", "recovery phrase", "verify your card",
+             "social security number", "confirm your bank details")
+_HOSTISH = re.compile(r"\b(?:https?://)?((?:[a-z0-9-]+\.)+[a-z]{2,})", re.I)
+
+
+def _host_ok(host: str) -> bool:
+    if not host or "xn--" in host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return False
+    except ValueError:
+        pass
+    return not any(host == s or host.endswith("." + s) for s in _SHORTENERS)
+
+
+def _same_site(shown: str, real: str) -> bool:
+    return shown == real or real.endswith("." + shown) or shown.endswith("." + real)
+
+
+class _EmailScan(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.tags, self.urls, self.anchors = set(), [], []
+        self._href, self._text = None, []
+    def handle_starttag(self, tag, attrs):
+        self.tags.add(tag.lower())
+        self.urls += [v for k, v in attrs if k.lower() in ("href", "src") and v]
+        if tag.lower() == "a":
+            self._href = dict((k.lower(), v) for k, v in attrs).get("href")
+            self._text = []
+    def handle_data(self, data):
+        if self._href is not None:
+            self._text.append(data)
+    def handle_endtag(self, tag):
+        if tag.lower() == "a" and self._href is not None:
+            self.anchors.append((self._href, "".join(self._text)))
+            self._href, self._text = None, []
+
+
+def _assert_safe_email(subject: str, html: str) -> None:
+    scan = _EmailScan(); scan.feed(html)
+    if scan.tags & {"form", "input", "textarea", "select"}:
+        raise ValueError("No forms or input fields in email (G2)")
+    body = f"{subject}\n{html}".lower()
+    for p in _CRED_ASK:
+        if p in body:
+            raise ValueError(f"Email asks the recipient for credentials: {p!r} (G2)")
+    for url in scan.urls:
+        low = url.strip().lower()
+        if low.startswith(("mailto:", "tel:", "cid:", "#")):
+            continue
+        if not low.startswith("https://"):
+            raise ValueError(f"Email links/assets must be absolute https: {url!r} (G3)")
+        host = urlparse(low).hostname or ""
+        if not _host_ok(host) or urlparse(low).username is not None:
+            raise ValueError(f"Shortened, numeric-host or credential-bearing URL: {url!r} (G3)")
+    for href, text in scan.anchors:
+        real = urlparse(href.strip().lower()).hostname or ""
+        if not real:
+            continue
+        for m in _HOSTISH.finditer(text):
+            if not _same_site(m.group(1).lower(), real):
+                raise ValueError(f"Anchor text {m.group(1)!r} != real link host {real!r} (G3)")
+
+
+async def send_email(*, to: str, subject: str, html: str) -> Optional[str]:
+    if not EMAIL_KEY:
+        log.warning("EMERGENT_EMAIL_KEY not set - skipping email send")
+        return None
+    _assert_safe_email(subject, html)
+    payload = {"to": [to], "subject": subject, "html": html, "from_name": EMAIL_FROM_NAME}
+    try:
+        async with httpx.AsyncClient(timeout=30) as c:
+            resp = await c.post(
+                f"{EMAIL_BASE_URL}/api/v1/email/send",
+                headers={"X-Email-Key": EMAIL_KEY},
+                json=payload,
+            )
+        resp.raise_for_status()
+        return resp.json().get("id")
+    except httpx.HTTPStatusError as e:
+        log.error(f"Email send failed: {e.response.status_code} {e.response.text}")
+        raise HTTPException(status_code=502, detail="E-posta gönderilemedi")
+    except Exception as e:
+        log.error(f"Email send error: {e}")
+        raise HTTPException(status_code=500, detail="E-posta gönderilemedi")
+
+
 # ---------- Startup ----------
 @app.on_event("startup")
 async def _startup():
@@ -318,6 +436,82 @@ async def logout(response: Response):
 @api.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
     return user
+
+
+@api.post("/auth/refresh")
+async def refresh_session(user: dict = Depends(get_current_user), response: Response = None):
+    token = create_token(user["id"], user["role"])
+    if response is not None:
+        response.set_cookie("access_token", token, httponly=True, samesite="lax", max_age=ACCESS_TTL_MIN * 60, path="/")
+    return {"access_token": token, "user": user, "expires_in": ACCESS_TTL_MIN * 60}
+
+
+@api.post("/auth/change-password")
+async def change_password(inp: ChangePasswordIn, user: dict = Depends(get_current_user)):
+    doc = await db.users.find_one({"id": user["id"]})
+    if not doc or not verify_pw(inp.current_password, doc["password_hash"]):
+        raise HTTPException(400, "Mevcut parola hatalı")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"password_hash": hash_pw(inp.new_password)}})
+    await audit(user, "password_change", "user", user["id"])
+    return {"ok": True}
+
+
+@api.post("/auth/forgot-password")
+async def forgot_password(inp: ForgotPasswordIn):
+    """Generate a reset token; send email. Always returns ok to avoid user enumeration."""
+    doc = await db.users.find_one({"email": inp.email.lower()})
+    if doc and doc.get("active", True):
+        token = uuid.uuid4().hex + uuid.uuid4().hex  # 64 chars
+        expires = datetime.now(timezone.utc) + timedelta(hours=1)
+        await db.password_resets.insert_one({
+            "id": new_id(),
+            "user_id": doc["id"],
+            "token": token,
+            "expires_at": expires.isoformat(),
+            "used": False,
+            "created_at": now_iso(),
+        })
+        reset_url = f"{FRONTEND_URL}/reset-password?token={token}" if FRONTEND_URL else f"/reset-password?token={token}"
+        html = (
+            f'<table role="presentation" width="100%"><tr><td style="padding:24px;'
+            f'font-family:Arial,sans-serif;color:#0f172a">'
+            f'<h2 style="margin:0 0 12px 0">Parola Sıfırlama</h2>'
+            f'<p>Merhaba {escape(doc.get("name") or "")},</p>'
+            f'<p>{escape(EMAIL_FROM_NAME)} hesabınız için parola sıfırlama talebi aldık. '
+            f'Aşağıdaki bağlantıya tıklayarak yeni parolanızı belirleyebilirsiniz. '
+            f'Bağlantı 1 saat geçerlidir.</p>'
+            f'<p style="margin:24px 0"><a href="{escape(reset_url)}" '
+            f'style="background:#0f172a;color:#ffffff;padding:12px 20px;text-decoration:none;'
+            f'border-radius:6px;display:inline-block">Parolamı Sıfırla</a></p>'
+            f'<p style="font-size:12px;color:#64748b">Bu talebi siz yapmadıysanız bu e-postayı '
+            f'yok sayabilirsiniz. {escape(EMAIL_FROM_NAME)} sizden e-posta ile asla parolanızı '
+            f'veya kart bilgilerinizi istemez.</p>'
+            f'<p style="font-size:12px;color:#94a3b8;margin-top:24px">— {escape(EMAIL_FROM_NAME)}</p>'
+            f'</td></tr></table>'
+        )
+        try:
+            await send_email(to=doc["email"], subject=f"{EMAIL_FROM_NAME} - Parola Sıfırlama", html=html)
+        except Exception as e:
+            log.error(f"Password reset email failed: {e}")
+    return {"ok": True, "message": "Eğer e-posta sistemde kayıtlıysa sıfırlama bağlantısı gönderildi"}
+
+
+@api.post("/auth/reset-password")
+async def reset_password(inp: ResetPasswordIn):
+    rec = await db.password_resets.find_one({"token": inp.token})
+    if not rec:
+        raise HTTPException(400, "Geçersiz sıfırlama bağlantısı")
+    if rec.get("used"):
+        raise HTTPException(400, "Bu bağlantı zaten kullanılmış")
+    try:
+        exp = datetime.fromisoformat(rec["expires_at"])
+        if exp < datetime.now(timezone.utc):
+            raise HTTPException(400, "Sıfırlama bağlantısının süresi dolmuş")
+    except ValueError:
+        raise HTTPException(400, "Geçersiz sıfırlama bağlantısı")
+    await db.users.update_one({"id": rec["user_id"]}, {"$set": {"password_hash": hash_pw(inp.new_password)}})
+    await db.password_resets.update_one({"id": rec["id"]}, {"$set": {"used": True, "used_at": now_iso()}})
+    return {"ok": True}
 
 
 @api.post("/auth/register")
@@ -936,6 +1130,36 @@ async def dashboard(site_id: str, user: dict = Depends(get_current_user)):
         "cash_bank_total_kurus": cash_bank_total,
         "debtor_count": debtor_count,
     }
+
+
+@api.get("/dashboard/activity")
+async def dashboard_activity(site_id: str, days: int = 7, user: dict = Depends(get_current_user)):
+    """Returns last N days of daily collections and expenses."""
+    days = max(1, min(days, 90))
+    today = datetime.now(timezone.utc).date()
+    start = today - timedelta(days=days - 1)
+    days_list = [(start + timedelta(days=i)).isoformat() for i in range(days)]
+    coll_map = {d: 0 for d in days_list}
+    exp_map = {d: 0 for d in days_list}
+
+    async for row in db.payments.aggregate([
+        {"$match": {"site_id": site_id, "date": {"$gte": days_list[0], "$lte": days_list[-1]}}},
+        {"$group": {"_id": {"$substr": ["$date", 0, 10]}, "sum": {"$sum": "$amount_kurus"}}},
+    ]):
+        if row["_id"] in coll_map:
+            coll_map[row["_id"]] = row["sum"]
+
+    async for row in db.expenses.aggregate([
+        {"$match": {"site_id": site_id, "date": {"$gte": days_list[0], "$lte": days_list[-1]}}},
+        {"$group": {"_id": {"$substr": ["$date", 0, 10]}, "sum": {"$sum": "$amount_kurus"}}},
+    ]):
+        if row["_id"] in exp_map:
+            exp_map[row["_id"]] = row["sum"]
+
+    return [
+        {"date": d, "collections_kurus": coll_map[d], "expenses_kurus": exp_map[d]}
+        for d in days_list
+    ]
 
 
 # ---------- Reports ----------

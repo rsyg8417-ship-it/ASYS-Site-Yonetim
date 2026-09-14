@@ -5,6 +5,9 @@ import { SiteProvider } from "@/context/SiteContext";
 import Layout from "@/components/Layout";
 import Setup from "@/pages/Setup";
 import Login from "@/pages/Login";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
+import Profile from "@/pages/Profile";
 import Dashboard from "@/pages/Dashboard";
 import Sites from "@/pages/Sites";
 import Persons from "@/pages/Persons";
@@ -39,6 +42,7 @@ function Guarded() {
           <Route path="audit" element={<AuditLog />} />
           <Route path="reports" element={<Reports />} />
           <Route path="users" element={<Users />} />
+          <Route path="profile" element={<Profile />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
@@ -53,6 +57,8 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/setup" element={<Setup />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/*" element={<Guarded />} />
         </Routes>
       </AuthProvider>

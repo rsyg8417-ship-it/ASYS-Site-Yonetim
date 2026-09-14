@@ -1,0 +1,23 @@
+{
+  "summary": "Iteration 6 — All 4 new features validated end-to-end. Backend: 11/11 pytest cases PASS (refresh, change-password wrong+success+restore, forgot-password creates password_resets record with expires_at ~1h, unknown email still 200, reset-password invalid/valid/token-reuse, dashboard/activity shape+auth, regression login+data intact). Frontend: forgot-password link visible on /login, navigates to /forgot-password card, submit shows sent message; login → dashboard shows activity-chart-card with 2 recharts lines (tahsilat, gider); /profile page loads, wrong current password shows 400/toast. Admin password restored to Admin123!. No data loss (3 units, 2 persons, TEST_Site, ₺337 debt, ₺6.631,77 kasa+banka intact).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter6_new_features.py",
+    "/app/test_reports/pytest/iter6_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 1314 lines — consider splitting auth/dashboard/reports into modules (>700 line threshold).",
+    "forgot-password: email send failures are only logged, which is fine for enumeration protection; consider rate-limiting to prevent DB spam of password_resets records.",
+    "reset-password does not invalidate previously issued tokens for same user when a new one is issued; not a bug per se, but multiple pending tokens can pile up."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter6_new_features.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "rsyg8417@gmail.com / Admin123! (restored at end of tests)",
+  "seed_data_creation": "None. All prior seed data preserved. A few password_resets records were created during tests (used flag set true after reset).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All 4 iter-6 features working. POST /api/auth/refresh, /auth/change-password, /auth/forgot-password (idempotent 200), /auth/reset-password (400 on invalid/reused/expired), GET /api/dashboard/activity?site_id=&days=7 returns array of 7 {date, collections_kurus, expenses_kurus}. Frontend testids: forgot-password-link, forgot-password-card, forgot-email-input, forgot-submit-btn, forgot-sent-message, back-to-login-btn, profile-page, profile-current-password, profile-new-password, profile-new-password-confirm, profile-change-password-btn, activity-chart-card, dashboard-page.",
+  "rca of the issue": "N/A - no issues found."
+}
