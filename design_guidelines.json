@@ -1,0 +1,190 @@
+{
+  "app_identity": {
+    "name": "ASYS — Apartman ve Site Yönetim Sistemi (V1)",
+    "description": "Enterprise-grade Turkish Property Management & Double-Entry Accounting PWA for Multi-Property Managers.",
+    "emotional_archetype": "Swiss High-Contrast & Tactical Precision (Authority, Clarity, Financial Rigor)",
+    "target_roles": ["Admin (Yönetici)", "Muhasebe (Accountant)", "Denetçi (Auditor)"],
+    "language": "tr-TR",
+    "currency_format": "TRY (TL & Kuruş in integer cents, e.g. 125050 -> ₺1.250,50)"
+  },
+  "theme_and_colors": {
+    "default_mode": "light",
+    "supported_modes": ["light", "dark"],
+    "forbidden_colors": [
+      "#1B93A4 (Teal Blue/Green)",
+      "#7351B7 (AI Purple)",
+      "Pure Black #000000 without blue/slate tint"
+    ],
+    "light_palette": {
+      "background": "#F8FAFC",
+      "surface": "#FFFFFF",
+      "surface_elevated": "#F1F5F9",
+      "border": "#E2E8F0",
+      "border_strong": "#CBD5E1",
+      "foreground": "#0F172A",
+      "foreground_muted": "#475569",
+      "primary": "#0F172A",
+      "primary_hover": "#1E293B",
+      "primary_foreground": "#F8FAFC",
+      "accent_emerald": "#059669",
+      "accent_emerald_light": "#ECFDF5",
+      "accent_amber": "#D97706",
+      "accent_amber_light": "#FFFBEB",
+      "accent_rose": "#E11D48",
+      "accent_rose_light": "#FFF1F2",
+      "accent_sky": "#0284C7",
+      "accent_sky_light": "#F0F9FF"
+    },
+    "dark_palette": {
+      "background": "#0B0F19",
+      "surface": "#111827",
+      "surface_elevated": "#1E293B",
+      "border": "#1E293B",
+      "border_strong": "#334155",
+      "foreground": "#F8FAFC",
+      "foreground_muted": "#94A3B8",
+      "primary": "#38BDF8",
+      "primary_hover": "#7DD3FC",
+      "primary_foreground": "#0F172A",
+      "accent_emerald": "#10B981",
+      "accent_emerald_light": "rgba(16, 185, 129, 0.15)",
+      "accent_amber": "#F59E0B",
+      "accent_amber_light": "rgba(245, 158, 11, 0.15)",
+      "accent_rose": "#F43F5E",
+      "accent_rose_light": "rgba(244, 63, 94, 0.15)",
+      "accent_sky": "#38BDF8",
+      "accent_sky_light": "rgba(56, 189, 248, 0.15)"
+    },
+    "status_indicators": {
+      "borc_debit": "#E11D48",
+      "alacak_credit": "#059669",
+      "tahsilat_collected": "#10B981",
+      "gecikme_interest": "#D97706",
+      "avans_deposit": "#0284C7",
+      "sync_online": "#10B981",
+      "sync_offline": "#F59E0B",
+      "sync_queued": "#3B82F6"
+    }
+  },
+  "typography": {
+    "headings_font": "'Outfit', 'Manrope', -apple-system, sans-serif",
+    "body_font": "'IBM Plex Sans', -apple-system, sans-serif",
+    "numeric_tabular_font": "'JetBrains Mono', 'Fira Code', monospace",
+    "forbidden_fonts": ["Space Grotesk", "Inter (for headings)"],
+    "scale": {
+      "h1": "text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight",
+      "h2": "text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight",
+      "h3": "text-lg sm:text-xl font-semibold tracking-tight",
+      "h4": "text-base sm:text-lg font-medium",
+      "body": "text-sm sm:text-base leading-relaxed",
+      "body_dense": "text-xs sm:text-sm leading-normal",
+      "financial_num": "font-mono font-semibold tracking-wide text-right"
+    }
+  },
+  "layout_and_structure": {
+    "type": "Enterprise SaaS Dashboard + Accounting Portal",
+    "sidebar": {
+      "collapsible": true,
+      "width_expanded": "w-64",
+      "width_collapsed": "w-20",
+      "bg": "bg-slate-900 dark:bg-slate-950 text-slate-100",
+      "site_selector_header": "High-contrast dropdown at the top of sidebar allowing seamless context switching between 'Tüm Siteler' and specific sites."
+    },
+    "topbar": {
+      "height": "h-16",
+      "elements": [
+        "Active Property / Site Context Badge",
+        "PWA Offline / Sync Queue Status Indicator Badge",
+        "Role Switcher / Indicator (Admin, Muhasebe, Denetçi)",
+        "Quick Actions (Yeni Tahsilat, Gider Ekle, Yevmiye Fişi)",
+        "User Profile & Theme Toggle"
+      ]
+    },
+    "bento_grid_density": "High density, 1px subtle borders, compact padding (p-4 to p-6), minimal card shadow, crisp border lines.",
+    "tables": {
+      "density": "Compact accounting density",
+      "cell_padding": "px-3 py-2.5",
+      "hover_state": "hover:bg-slate-100/80 dark:hover:bg-slate-800/50 transition-colors",
+      "striped": false,
+      "borders": "border-b border-slate-200 dark:border-slate-800",
+      "alignment": "Numbers right-aligned, text left-aligned, status center-aligned"
+    }
+  },
+  "core_modules_ui_specs": {
+    "first_run_wizard": {
+      "description": "Admin creation & initial site configuration form for fresh installation",
+      "layout": "Centered multi-step card with progress indicator, setup validation, sample data option"
+    },
+    "dashboard_kpis": {
+      "widgets": [
+        "Toplam Borç / Daire Başına Ortalama (Red card indicator)",
+        "Aylık Tahsilat Oranı % (Progress bar + Green gauge)",
+        "Aylık Gelir vs. Gider (Comparison sparkline chart)",
+        "Kasa & Banka Bakiye Toplamı (Liquid Cash breakdown)",
+        "Yaklaşan Gecikme Faizleri & Son Fişler"
+      ]
+    },
+    "site_block_unit_tree": {
+      "description": "Hierarchical tree view of Site > Blok > Bağımsız Bölüm",
+      "features": ["Expandable accordion nodes", "Occupancy status badges (Malik/Kiracı/Boş)", "Quick add unit modal", "Arrears highlight tag"]
+    },
+    "aidat_and_accrual_engine": {
+      "description": "Mass dues accrual generation tool with preview table",
+      "features": ["Equal vs Share-ratio calculation (Metrekare / Arsa payı / Eşit)", "Delay interest preview (%5 / ay)", "Draft review before booking to ledger"]
+    },
+    "tahsilat_collection_dialog": {
+      "description": "Collection register with automatic FIFO debt settlement + advance deposit warning",
+      "features": ["FIFO auto-offset algorithm summary", "Partial payment splits", "Overpayment notice showing 'Avans Hesabı Bakiyesi'", "Receipt summary export"]
+    },
+    "double_entry_journal": {
+      "description": "Immutable Yevmiye Defteri (Journal Log)",
+      "features": ["Debit (Borç) and Credit (Alacak) balanced entries check", "Immutable status tag", "Filter by period, account code, document no", "CSV/Excel & PDF printing"]
+    },
+    "period_management": {
+      "description": "Dönem Aç/Kapama Wizard",
+      "features": ["Unbalanced entry error blocker", "Automatic opening/closing balance entries generation", "Role constraint check (Admin only)"]
+    },
+    "offline_sync_queue": {
+      "description": "PWA Sync Queue Badge & Conflict Drawer",
+      "features": ["Live browser online/offline status banner", "Pending write actions queue badge (e.g. '3 işlem senkronizasyon bekliyor')", "Manual force-sync trigger", "Conflict resolution preview"]
+    }
+  },
+  "data_testid_convention": {
+    "rule": "Every button, input, table, form field, modal, select, tab, and key stat MUST have kebab-case data-testid.",
+    "examples": [
+      "data-testid='first-run-wizard-container'",
+      "data-testid='admin-create-submit-button'",
+      "data-testid='site-selector-dropdown'",
+      "data-testid='sync-queue-badge'",
+      "data-testid='role-switcher-select'",
+      "data-testid='kpi-total-debt-card'",
+      "data-testid='tree-site-node-1'",
+      "data-testid='aidat-accrual-batch-btn'",
+      "data-testid='tahsilat-fifo-modal-open'",
+      "data-testid='yevmiye-defteri-table'",
+      "data-testid='export-pdf-button'",
+      "data-testid='export-excel-button'"
+    ]
+  },
+  "image_urls": [
+    {
+      "category": "login_and_setup_hero",
+      "description": "Modern architecture building exterior for setup and background visuals",
+      "url": "https://images.unsplash.com/photo-1785433079644-372114be080f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDN8MHwxfHNlYXJjaHxfHxtb2Rlcm4lMjBhcGFydG1lbnQlMjBidWlsZGluZyUyMGFyY2hpdGVjdHVyZSUyMFR1cmtpc2glMjBzaXRlfGVufDB8fHx8MTc4OTM4ODQ3MHww&ixlib=rb-4.1.0&q=85"
+    }
+  ],
+  "instructions_to_main_agent": [
+    "Ensure all code files are .js (or .jsx) as defined in the project setup.",
+    "Currency formatting utility MUST format integer kuruş to Turkish Lira string (e.g. integer 150000 -> ₺1.500,00 TR format with Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' })).",
+    "Double-entry accounting journal entries must ensure sum(Borç) === sum(Alacak) before posting.",
+    "All navigation and action buttons must feature data-testid attributes.",
+    "Ensure Shadcn UI components (Select, Dialog, Tabs, DropdownMenu, Table, Toast) have explicit non-transparent backgrounds and full accessibility contrast.",
+    "Include local offline queue simulation in localStorage / IndexedDB with visual queue counter badge in topbar."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": {
+    "spacing": "Maintain 2x generous padding inside containers. Tables must be dense but legible with mono numbers.",
+    "hover_states": "Always specify explicit background and text color on hover. Never rely on transparent standard inheritance.",
+    "accessibility": "Ensure contrast ratios pass WCAG AA (4.5:1 minimum).",
+    "motion": "Use crisp micro-interactions via framer-motion (0.15s - 0.2s duration)."
+  }
+}
